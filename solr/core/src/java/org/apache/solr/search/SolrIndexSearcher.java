@@ -1165,6 +1165,11 @@ public class SolrIndexSearcher extends IndexSearcher implements Closeable, SolrI
 
     int smallestCount = Integer.MAX_VALUE;
     for (Query q : queries) {
+        // NOTE:fkltr not using postFiltering and filter-execution-parallel-to-query.
+        // This approach helps in short-circuiting query execution once filters are done.
+        // It is optimised for our use-case where query contains only filters AND
+        // also leaves flexibility to not cache a combination(specially OR) of some filters.
+        // eg. - {"fq": ["{!cache=false} +(filter(f1:v11) filter(f1:v12))"]}
 //      if (q instanceof ExtendedQuery) {
 //        ExtendedQuery eq = (ExtendedQuery) q;
 //        if (!eq.getCache()) {
@@ -1856,9 +1861,9 @@ public class SolrIndexSearcher extends IndexSearcher implements Closeable, SolrI
       hitsRelation = Relation.EQUAL_TO;
     } else {
       final TopDocsCollector<?> topCollector = buildTopDocsCollector(len, cmd);
-      ScoreMode scoreModeUsed = null;
       MaxScoreCollector maxScoreCollector = null;
       // todo:fkltr identify all other instance of buildTopDocsCollector invocation when this fork may be necessary.
+      ScoreMode scoreModeUsed = null;
       if (topCollector instanceof DocSetTopDocsCollector) {
         ((DocSetTopDocsCollector) topCollector).setMatchedDocSet(pf.answer);
       } else if (topCollector instanceof NonReRankingDocSetTopDocsCollector) {
