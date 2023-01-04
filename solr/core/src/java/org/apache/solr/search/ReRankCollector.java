@@ -118,6 +118,7 @@ public class ReRankCollector extends TopDocsCollector<ScoreDoc> {
           reRankQueryRescorer.rescore(searcher, mainDocs, mainDocs.scoreDocs.length);
 
       // Lower howMany to return if we've collected fewer documents.
+      //todo : check whats this number for 8.2? @vatsal.patel
       howMany = Math.min(howMany, mainScoreDocs.length);
 
       if (boostedPriority != null) {
