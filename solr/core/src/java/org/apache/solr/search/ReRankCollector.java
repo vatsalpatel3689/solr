@@ -141,7 +141,7 @@ public class ReRankCollector extends TopDocsCollector<ScoreDoc> {
         return rescoredDocs; // Just return the rescoredDocs
       } else if (howMany > rescoredDocs.scoreDocs.length) {
         // We need to return more then we've reRanked, so create the combined page.
-        /*ScoreDoc[] scoreDocs = new ScoreDoc[howMany];
+        /* ScoreDoc[] scoreDocs = new ScoreDoc[howMany];
         System.arraycopy(
             mainScoreDocs, 0, scoreDocs, 0, scoreDocs.length); // lay down the initial docs
         System.arraycopy(
@@ -150,7 +150,7 @@ public class ReRankCollector extends TopDocsCollector<ScoreDoc> {
             scoreDocs,
             0,
             rescoredDocs.scoreDocs.length); // overlay the re-ranked docs.
-        rescoredDocs.scoreDocs = scoreDocs;*/
+        rescoredDocs.scoreDocs = scoreDocs; */
         return rescoredDocs;
       } else {
         // We've rescored more then we need to return.
