@@ -1546,7 +1546,10 @@ public class SolrIndexSearcher extends IndexSearcher implements Closeable, SolrI
           if ((flags & GET_SCORES) == 0 || superset.hasScores()) {
             // NOTE: subset() returns null if the DocList has fewer docs than
             // requested
-            out.docList = superset.subset(cmd.getOffset(), cmd.getLen());
+            superset = out.docList;
+            if (superset.size() > cmd.getLen()) {
+              out.docList = superset.subset(cmd.getOffset(), cmd.getLen());
+            }
           }
         }
         if (out.docList != null) {
@@ -1685,7 +1688,9 @@ public class SolrIndexSearcher extends IndexSearcher implements Closeable, SolrI
       // cursors anyway, but it still looks weird to have to special case this
       // behavior based on this condition - hence the long explanation.
       superset = out.docList;
-      out.docList = superset.subset(cmd.getOffset(), cmd.getLen());
+      if (superset.size() > cmd.getLen()) {
+        out.docList = superset.subset(cmd.getOffset(), cmd.getLen());
+      }
     } else {
       // sanity check our cursor assumptions
       assert null == superset : "cursor: superset isn't null";
