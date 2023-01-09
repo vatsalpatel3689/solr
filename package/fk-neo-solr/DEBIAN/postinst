@@ -39,12 +39,15 @@ function configSetup() {
     chmod 755 /etc/confd/templates/${PACKAGE}.in.sh.tmpl
 
     # updating service name, it mimics the effect of -s option passed to install_solr_service script.
+    echo "service name ----->" $SERVICE
     sed -i -e "s/_SERVICE_/$SERVICE/g" /etc/confd/templates/${PACKAGE}.in.sh.tmpl
     sed -i -e "s/_SERVICE_/$SERVICE/g" /etc/confd/conf.d/${PACKAGE}.in.sh.toml
 
     # updating SOLR_HOST.
+    echo "hostname ----->" $HOSTNAME
     sed -i -e "s/_SOLR_HOST_/$HOSTNAME_IP/g" /etc/confd/templates/${PACKAGE}.in.sh.tmpl
 
+    echo "ENV ----->" $ENV
     # updating environment so that corresponding bucket is picked.
     sed -i -e "s/_ENV_/$ENV/g" /etc/confd/conf.d/${PACKAGE}.in.sh.toml
 
@@ -64,9 +67,12 @@ if [ "$CMD" == "configure" ]; then
 
     # install solr service.
     cd /usr/share/${PACKAGE}/lib/
-    tar xzf solr-${VERSION}.tgz solr-${VERSION}/bin/install_solr_service.sh --strip-components=2
+    echo "before tar"
+    pwd
+    ls
+    tar xzf solr-9.1.0-FK-2.tgz solr-${VERSION}/bin/install_solr_service.sh --strip-components=2
     # -n because we don't want to start solr immediately. -f to force upgrade.
-    sudo bash ./install_solr_service.sh solr-${VERSION}.tgz -u ${USER} -s ${SERVICE} -n -f
+    sudo bash ./install_solr_service.sh solr-9.1.0-FK-2.tgz -u ${USER} -s ${SERVICE} -n -f
 
     # changing ownership of /usr/share/${PACKAGE}
     chown -R ${USER}:${USER} /usr/share/${PACKAGE}
