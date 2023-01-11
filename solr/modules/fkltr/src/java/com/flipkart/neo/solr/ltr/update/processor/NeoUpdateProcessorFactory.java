@@ -198,7 +198,7 @@ public class NeoUpdateProcessorFactory extends UpdateRequestProcessorFactory imp
     // Till then hardcoding ch endpoint, should'nt be a problem as only used by static bucket.
     log.warn("Auth after init : {}", this.authnClientId);
     log.warn("Auth after readStringFromFile : {}", FileUtils.readStringFromFile(AUTHN_CLIENT_SECRET_PATH));
-    AuthTokenService.init("https://authn.ch.flipkart.com",
+    AuthTokenService.init("https://service.authn-prod.fkcloud.in",
         this.authnClientId, FileUtils.readStringFromFile(AUTHN_CLIENT_SECRET_PATH));
     AuthTokenService authTokenService = AuthTokenService.getInstance();
 //    log.warn("Auth is Initialised : {}", authTokenService.isInitialized());
