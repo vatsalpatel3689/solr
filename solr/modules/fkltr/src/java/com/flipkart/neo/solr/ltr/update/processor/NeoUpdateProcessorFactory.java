@@ -109,13 +109,9 @@ public class NeoUpdateProcessorFactory extends UpdateRequestProcessorFactory imp
 
     // setting up configBuckets
     AuthTokenService authTokenService = createAuthTokenService();
-    log.warn("started AuthTokenService...");
     CryptexClient cryptexClient = createCryptexClient(authTokenService);
-    log.warn("got CryptexClient...");
     DynamicBucket staticConfigBucket = getConfigBucket(staticConfigBucketName, cryptexClient);
-    log.warn("read static bucket...");
     DynamicBucket dynamicConfigBucket = getConfigBucket(dynamicConfigBucketName, cryptexClient);
-    log.warn("read dynami bucket...");
     // setting up neoFKLTRConfigs for dynamic configs
     NeoFKLTRConfigs neoFKLTRConfigs = new NeoFKLTRConfigs(dynamicConfigBucket);
 
@@ -123,12 +119,9 @@ public class NeoUpdateProcessorFactory extends UpdateRequestProcessorFactory imp
     metricPublisher = new MetricPublisher(core.getCoreMetricManager().getRegistry(), METRICS_PREFIX);
 
     // initializing neoScoringModule
-    log.warn("getting modelMySqlConfig...");
     ModelMysqlConfig modelMysqlConfig = getModelMysqlConfig(staticConfigBucket);
     boolean isStaticModelsEnabled = ConfigBucketUtils.getBoolean(staticConfigBucket, StaticConfigBucketKeys.STATIC_MODEL_ENABLED, false);
-    log.warn("getting isStaticModelsEnabled... {}", isStaticModelsEnabled);
     int modelRefreshPeriodInSeconds = staticConfigBucket.getInt(StaticConfigBucketKeys.MODEL_REFRESH_PERIOD_IN_SECS);
-    log.warn("getting modelRefreshPeriodInSeconds... {}", modelRefreshPeriodInSeconds);
     neoScoringModule = new NeoScoringModuleImpl(modelMysqlConfig, getActiveModelsRetriever(dynamicConfigBucket),
         modelRefreshPeriodInSeconds, bannerCacheInitialSize, neoFKLTRConfigs, core.getCoreMetricManager().getRegistry(), isStaticModelsEnabled);
     neoScoringModule.initialize();
@@ -181,44 +174,17 @@ public class NeoUpdateProcessorFactory extends UpdateRequestProcessorFactory imp
   }
 
   private CryptexClient createCryptexClient(AuthTokenService authTokenService) {
-    CryptexClient c = null;
-    try {
-      c = new CryptexClientBuilder(authTokenService).build();
-      log.warn("CryptexClientBuilder ran fine..., {}", c);
-    } catch (Exception e ){
-      e.printStackTrace();
-      log.warn("Auth fetch token failed..., {}", (Object[]) e.getStackTrace());
-    }
-    return c;
+    return new CryptexClientBuilder(authTokenService).build();
   }
 
   private AuthTokenService createAuthTokenService() {
     // Discussed with authn team, they would be providing authn client with self discovery of endpoint base on host
     // metadata. Can't keep in config-bucket as config-service itself is behind authn now after cryptex.
     // Till then hardcoding ch endpoint, should'nt be a problem as only used by static bucket.
-    log.warn("Auth after init : {}", this.authnClientId);
-    log.warn("Auth after readStringFromFile : {}", FileUtils.readStringFromFile(AUTHN_CLIENT_SECRET_PATH));
     AuthTokenService.init("https://service.authn-prod.fkcloud.in",
         this.authnClientId, FileUtils.readStringFromFile(AUTHN_CLIENT_SECRET_PATH));
     AuthTokenService authTokenService = AuthTokenService.getInstance();
-//    log.warn("Auth is Initialised : {}", authTokenService.isInitialized());
-    log.warn("Auth fetching token().... {}", authTokenService);
-
-    AuthToken authToken;
-    try {
-      authToken = authTokenService.fetchToken("fk-neo-solr");
-      log.warn("Auth fetch token() : {}", authToken.getToken());
-      log.warn("Auth token expires in() : {}", authToken.getExpiresIn());
-      log.warn("Auth token has expires in() : {}", authToken.hasExpired());
-      log.warn("Auth token has expiryTime() : {}", authToken.getExpiryTime());
-    } catch (Exception e) {
-      e.printStackTrace();
-      log.warn("Auth fetch token failed..., {}", (Object[]) e.getStackTrace());
-
-
-    }
-
-
+    AuthToken  = authTokenService.fetchToken("fk-neo-solr");
     return authTokenService;
   }
 
@@ -254,17 +220,11 @@ public class NeoUpdateProcessorFactory extends UpdateRequestProcessorFactory imp
 
   private ModelMysqlConfig getModelMysqlConfig(DynamicBucket configBucket) {
     ModelMysqlConfig modelMysqlConfig = new ModelMysqlConfig();
-    log.warn("MODEL_MYSQL_APP_NAME {}", configBucket.getString(StaticConfigBucketKeys.MODEL_MYSQL_APP_NAME));
     modelMysqlConfig.setAppName(configBucket.getString(StaticConfigBucketKeys.MODEL_MYSQL_APP_NAME));
-    log.warn("MODEL_MYSQL_HOST {}", configBucket.getString(StaticConfigBucketKeys.MODEL_MYSQL_HOST));
     modelMysqlConfig.setMysqlModelClientHost(configBucket.getString(StaticConfigBucketKeys.MODEL_MYSQL_HOST));
-    log.warn("MODEL_MYSQL_PORT {}", configBucket.getString(StaticConfigBucketKeys.MODEL_MYSQL_PORT));
     modelMysqlConfig.setMysqlModelClientPort(configBucket.getInt(StaticConfigBucketKeys.MODEL_MYSQL_PORT));
-    log.warn("MODEL_MYSQL_DB {}", configBucket.getString(StaticConfigBucketKeys.MODEL_MYSQL_DB));
     modelMysqlConfig.setMysqlModelClientDbName(configBucket.getString(StaticConfigBucketKeys.MODEL_MYSQL_DB));
-    log.warn("MODEL_MYSQL_USER {}", configBucket.getString(StaticConfigBucketKeys.MODEL_MYSQL_USER));
     modelMysqlConfig.setMysqlModelClientUser(configBucket.getString(StaticConfigBucketKeys.MODEL_MYSQL_USER));
-    log.warn("MODEL_MYSQL_PASS {}", configBucket.getString(StaticConfigBucketKeys.MODEL_MYSQL_PASS));
     modelMysqlConfig.setMysqlModelClientPassword(configBucket.getString(StaticConfigBucketKeys.MODEL_MYSQL_PASS));
     return modelMysqlConfig;
   }

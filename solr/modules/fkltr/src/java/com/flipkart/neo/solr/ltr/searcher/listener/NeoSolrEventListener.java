@@ -44,17 +44,8 @@ public class NeoSolrEventListener extends AbstractSolrEventListener {
   @Override
   public void newSearcher(SolrIndexSearcher newSearcher, SolrIndexSearcher currentSearcher) {
     log.warn("NeoSolrEventListener staring for newSearcher: {}, currentSearcher: {}", newSearcher, currentSearcher);
-    if (StringUtils.isEmpty(updateProcessorName)) {
-      log.warn("NeoSolrEventListener null.....");
-    }
     NeoUpdateProcessorFactory neoUpdateProcessorFactory =
         (NeoUpdateProcessorFactory) newSearcher.getCore().getUpdateProcessors().get(updateProcessorName);
-    if (newSearcher.getCore() == null) {
-      log.warn("core is null.....");
-    }
-    if (neoUpdateProcessorFactory == null) {
-      log.warn("neoUpdateProcessorFactory is null.....");
-    }
     BannerCache bannerCache = neoUpdateProcessorFactory.getBannerCache();
     StoredDocumentParser documentParser = neoUpdateProcessorFactory.getStoredDocumentParser();
     String searcherBannerCacheName = neoUpdateProcessorFactory.getSearcherBannerCacheName();

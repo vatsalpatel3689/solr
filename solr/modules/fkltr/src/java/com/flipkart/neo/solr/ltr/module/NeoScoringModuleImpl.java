@@ -54,14 +54,11 @@ public class NeoScoringModuleImpl implements NeoScoringModule {
                               NeoFKLTRConfigs neoFKLTRConfigs,
                               MetricRegistry metricRegistry, boolean isStaticModelsEnabled) {
     log.info("INITIALIZING NeoScoringModule");
-    log.warn("INITIALIZING NeoScoringModule");
 
     // initialize bannerCache.
     this.bannerCache = new InMemoryBannerCache(bannerCacheInitialSize);
-    log.warn("creating banner cache {}", bannerCache);
     // initialize modelScorerFactory.
     ModelUpdateListener modelUpdateListener = new CachedBannerModelUpdateListener(bannerCache);
-    log.warn("creating modelUpdateListener {}", modelUpdateListener);
 
     this.metricRegistry = metricRegistry;
     this.modelRefreshPeriodInMillis = (long) modelRefreshPeriodInSeconds * 1000;
@@ -130,12 +127,6 @@ public class NeoScoringModuleImpl implements NeoScoringModule {
   private ModelManager getStaticOrDynamicModelManager(ModelMysqlConfig modelMysqlConfig, ModelUpdateListener modelUpdateListener,
                                                       ActiveModelsRetriever activeModelsRetriever, boolean isStaticModelsEnabled) {
     //TODO gracefully handle isStaticModelsEnabled = true
-    log.warn("getMysqlModelClientHost {}", modelMysqlConfig.getMysqlModelClientHost());
-    log.warn("getMysqlModelClientPort {}", modelMysqlConfig.getMysqlModelClientPort());
-    log.warn("getMysqlModelClientDbName {}", modelMysqlConfig.getMysqlModelClientDbName());
-    log.warn("getMysqlModelClientPassword {}", modelMysqlConfig.getMysqlModelClientPassword());
-    log.warn("getMysqlModelClientUser {}", modelMysqlConfig.getMysqlModelClientUser());
-
     if(isStaticModelsEnabled){
       throw new RuntimeException("StaticModel based management has been deprecated");
     }
