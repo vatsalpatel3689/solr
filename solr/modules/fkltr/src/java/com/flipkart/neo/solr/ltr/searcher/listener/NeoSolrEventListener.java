@@ -12,7 +12,6 @@ import com.flipkart.neo.solr.ltr.schema.SchemaFieldNames;
 import com.flipkart.neo.solr.ltr.schema.parser.StoredDocumentParser;
 import com.flipkart.neo.solr.ltr.update.processor.NeoUpdateProcessorFactory;
 import org.apache.lucene.document.Document;
-import org.apache.solr.common.StringUtils;
 import org.apache.solr.common.util.NamedList;
 import org.apache.solr.core.AbstractSolrEventListener;
 import org.apache.solr.core.SolrCore;

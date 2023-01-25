@@ -184,7 +184,7 @@ public class NeoUpdateProcessorFactory extends UpdateRequestProcessorFactory imp
     AuthTokenService.init("https://service.authn-prod.fkcloud.in",
         this.authnClientId, FileUtils.readStringFromFile(AUTHN_CLIENT_SECRET_PATH));
     AuthTokenService authTokenService = AuthTokenService.getInstance();
-    AuthToken  = authTokenService.fetchToken("fk-neo-solr");
+    AuthToken authToken = authTokenService.fetchToken("fk-neo-solr");
     return authTokenService;
   }
 
