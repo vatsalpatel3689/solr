@@ -27,11 +27,15 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.atomic.LongAdder;
 import java.util.Objects;
 import org.apache.lucene.index.ExitableDirectoryReader;
 import org.apache.lucene.index.IndexReaderContext;
@@ -125,6 +129,9 @@ import org.slf4j.LoggerFactory;
  * @since solr 1.3
  */
 public class QueryComponent extends SearchComponent {
+  // NOTE:fkltr keeping it as a flag here so that in future if required we can switch the behaviour.
+  private static final boolean CUSTOM_SORTING_REQUIRED_FOR_GROUP_MERGE = false;
+  private static final String SHARD_MERGE_METRIC_NAME = "fkltrMetrics.shardMerge";
   public static final String COMPONENT_NAME = "query";
   private static final Logger log = LoggerFactory.getLogger(MethodHandles.lookup().lookupClass());
 
@@ -824,7 +831,11 @@ public class QueryComponent extends SearchComponent {
         additionalAdded = addFL(additionalFL, "score", additionalAdded);
       }
     }
-
+// checking if custom grouping is required. If required, adding the field on which grouping would be done.
+    Optional<String> customGroupField = getCustomGroupField(rb.getRankQuery());
+    if (customGroupField.isPresent()) {
+      additionalAdded = addFL(additionalFL, customGroupField.get(), additionalAdded);
+    }
     // TODO: should this really sendGlobalDfs if just includeScore?
 
     if (shardQueryIncludeScore || rb.isDebug()) {
@@ -873,14 +884,32 @@ public class QueryComponent extends SearchComponent {
     IndexSchema schema = rb.req.getSchema();
     SchemaField uniqueKeyField = schema.getUniqueKeyField();
 
+    // numOfShards dependent meter starts here.
+    long shardMergeStartTime = System.currentTimeMillis();
+
     // id to shard mapping, to eliminate any accidental dups
     HashMap<Object, String> uniqueDoc = new HashMap<>();
 
     // Merge the docs via a priority queue so we don't have to sort *all* of the
-    // documents... we only need to order the top (rows+start)
-    final ShardFieldSortedHitQueue queue =
-        new ShardFieldSortedHitQueue(
-            sortFields, ss.getOffset() + ss.getCount(), rb.req.getSearcher());
+    Optional<String> customGroupField = getCustomGroupField(rb.getRankQuery());
+
+    ShardFieldSortedHitQueue queue = null;
+    Map<String, List<ShardDoc>> groupedShardDocs = null;
+    int limitPerGroup = 0;
+    if (!customGroupField.isPresent()) {
+      // Merge the docs via a priority queue so we don't have to sort *all* of the
+      queue = new ShardFieldSortedHitQueue(sortFields, ss.getOffset() + ss.getCount(), rb.req.getSearcher());
+    } else {
+      // Initialising the map which will be used to collect docs according to customGroupFiled.
+      Set<String> groupsRequired = rb.getRankQuery().getGroupsRequired();
+      limitPerGroup = rb.getRankQuery().getLimitPerGroup();
+      groupedShardDocs = new HashMap<>(groupsRequired.size(), 1);
+      for (String group: groupsRequired) {
+        // Early initialising the array, as it holds good for our use-case.
+        // It also further serves as check if a fieldValue is part of groupsRequired (avoids one extra map lookup).
+        groupedShardDocs.put(group, new ArrayList<>(limitPerGroup));
+      }
+    }
 
     NamedList<Object> shardInfo = null;
     if (rb.req.getParams().getBool(ShardParams.SHARDS_INFO, false)) {
@@ -1050,24 +1079,78 @@ public class QueryComponent extends SearchComponent {
 
         shardDoc.sortFieldValues = unmarshalledSortFieldValues;
 
-        queue.insertWithOverflow(shardDoc);
+        if (!customGroupField.isPresent()) {
+          queue.insertWithOverflow(shardDoc);
+        } else {
+          // insert doc in corresponding group-bags.
+          Collection<Object> groups = doc.getFieldValues(customGroupField.get());
+          for (Object group: groups) {
+            String groupString = (String) group;
+            List<ShardDoc> groupShardDocs = groupedShardDocs.get(groupString);
+            if (groupShardDocs != null) {
+              if (groupShardDocs.size() < limitPerGroup-1) {
+                // still not collected limitPerGroup docs
+                groupShardDocs.add(shardDoc);
+              } else if (groupShardDocs.size() == limitPerGroup - 1) {
+                groupShardDocs.add(shardDoc);
+                // we have collected limitPerGroup docs for this group, we can create heap now.
+                minHeapify(groupShardDocs, limitPerGroup);
+              } else {
+                // we will put entry in heap only if it is eligible.
+                if (shardDoc.score > groupShardDocs.get(0).score) {
+                  groupShardDocs.set(0, shardDoc);
+                  minHeapAdjust(groupShardDocs, limitPerGroup, 0);
+                }
+              }
+            }
+          }
+        }
       } // end for-each-doc-in-response
     } // end for-each-response
 
-    // The queue now has 0 -> queuesize docs, where queuesize <= start + rows
-    // So we want to pop the last documents off the queue to get
-    // the docs offset -> queuesize
-    int resultSize = queue.size() - ss.getOffset();
-    resultSize = Math.max(0, resultSize); // there may not be any docs in range
+    int resultSize = 0;
+    Map<Object,ShardDoc> resultIds = new HashMap<>();
 
-    Map<Object, ShardDoc> resultIds = new HashMap<>();
-    for (int i = resultSize - 1; i >= 0; i--) {
-      ShardDoc shardDoc = queue.pop();
-      shardDoc.positionInResponse = i;
-      // Need the toString() for correlation with other lists that must
-      // be strings (like keys in highlighting, explain, etc)
-      resultIds.put(shardDoc.id.toString(), shardDoc);
+    if (!customGroupField.isPresent()) {
+      // The queue now has 0 -> queuesize docs, where queuesize <= start + rows
+      // So we want to pop the last documents off the queue to get
+      // the docs offset -> queuesize
+      resultSize = queue.size() - ss.getOffset();
+      resultSize = Math.max(0, resultSize);  // there may not be any docs in range
+
+      for (int i=resultSize-1; i>=0; i--) {
+        ShardDoc shardDoc = queue.pop();
+        shardDoc.positionInResponse = i;
+        // Need the toString() for correlation with other lists that must
+        // be strings (like keys in highlighting, explain, etc)
+        resultIds.put(shardDoc.id.toString(), shardDoc);
+      }
+    } else {
+      // collecting shard docs across groups.
+      int maxDocsRequired = ss.getOffset() + ss.getCount();
+      List<ShardDoc> shardDocs;
+      if (CUSTOM_SORTING_REQUIRED_FOR_GROUP_MERGE) {
+        shardDocs = collectCustomSortedGroupDocs(groupedShardDocs, maxDocsRequired);
+      } else {
+        shardDocs = collectGroupDocs(groupedShardDocs, maxDocsRequired);
+      }
+
+      resultSize = shardDocs.size() - ss.getOffset();
+      resultSize = Math.max(0, resultSize);
+      resultSize = Math.min(resultSize, ss.getCount());
+
+      for (int i=resultSize-1; i>=0; i--) {
+        ShardDoc shardDoc = shardDocs.get(ss.getOffset()+i);
+        shardDoc.positionInResponse = i;
+        // Need the toString() for correlation with other lists that must
+        // be strings (like keys in highlighting, explain, etc)
+        resultIds.put(shardDoc.id.toString(), shardDoc);
+      }
     }
+
+    // numOfShards dependent meter ends here.
+//    registry.timer(SHARD_MERGE_METRIC_NAME)
+//            .update((System.currentTimeMillis() - shardMergeStartTime), TimeUnit.MILLISECONDS);
 
     // Add hits for distributed requests
     // https://issues.apache.org/jira/browse/SOLR-3518
@@ -1117,6 +1200,91 @@ public class QueryComponent extends SearchComponent {
                 SolrQueryResponse.RESPONSE_HEADER_SEGMENT_TERMINATED_EARLY_KEY,
                 segmentTerminatedEarly);
       }
+    }
+  }
+
+  /**
+   * @param groupedDocs groupedDocs
+   * @param maxDocsRequired maxDocsRequired, it should be greater than numGroups*limitPerGroup to have proper
+   *                        representation of groups in collected docs.
+   * @return returns collected distinct docs, returned docs are in no particular order.
+   */
+  private List<ShardDoc> collectGroupDocs(Map<String, List<ShardDoc>> groupedDocs, int maxDocsRequired) {
+    Collection<List<ShardDoc>> groupedDocsValues = groupedDocs.values();
+
+    int maxDocs = groupedDocsValues.stream().mapToInt(List::size).sum();
+    Set<ShardDoc> finalDocSet = new HashSet<>(maxDocs, 1);
+
+    for (List<ShardDoc> groupDocs: groupedDocsValues) {
+      finalDocSet.addAll(groupDocs);
+    }
+
+    // list is required for indexed lookup down the line.
+    List<ShardDoc> finalDocs = new ArrayList<>(finalDocSet);
+
+    if (finalDocs.size() > maxDocsRequired) {
+      // this situation should not be arriving ideally.
+      // limiting here without taking groups into consideration,
+      // so maxDocsRequired should be >= numGroups * limitPerGroup for proper representation of groups.
+      finalDocs = finalDocs.subList(0, maxDocsRequired);
+    }
+
+    return finalDocs;
+  }
+
+  /**
+   * Custom-sorts the document.
+   * First docs within group are sorted.
+   * Each group is assigned a position in an interleaved sequence eg g1b1,g2b1,g1b2,g2b2,..
+   * This sequence ensures that any subList has proper representation of of the groups, this attribute helps in result caching.
+   * @param groupedDocs groupedDocs
+   * @param maxDocsRequired maxDocsRequired
+   * @return returns collected distinct docs, docs are in the custom order as explained above.
+   */
+  private List<ShardDoc> collectCustomSortedGroupDocs(Map<String, List<ShardDoc>> groupedDocs,
+                                                      int maxDocsRequired) {
+    Collection<List<ShardDoc>> groupedDocsValues = groupedDocs.values();
+
+    LongAdder counter = new LongAdder();
+    groupedDocsValues.parallelStream().forEach(list ->
+            {
+              list.sort((o1, o2) -> Float.compare(o2.score, o1.score));
+              counter.add(list.size());
+            }
+    );
+    int maxDocs = counter.intValue();
+    maxDocs = Math.min(maxDocs, maxDocsRequired);
+
+    List<ShardDoc> finalDocs = new ArrayList<>(maxDocs);
+    int iteration = 0;
+    int index = 0;
+    Set<ShardDoc> selectedDocs = new HashSet<>(maxDocs, 1);
+
+    boolean somebodyIsThere = true;
+    while (somebodyIsThere && index < maxDocsRequired) {
+      somebodyIsThere = false;
+      for (List<ShardDoc> groupDocs: groupedDocsValues) {
+        if (iteration >= groupDocs.size()) continue;
+
+        somebodyIsThere = true;
+        ShardDoc shardDoc = groupDocs.get(iteration);
+        if (!selectedDocs.contains(shardDoc)) {
+          finalDocs.add(shardDoc);
+          index++;
+          selectedDocs.add(shardDoc);
+        }
+      }
+      iteration++;
+    }
+
+    return finalDocs;
+  }
+
+  private Optional<String> getCustomGroupField(RankQuery rankQuery) {
+    if (rankQuery != null) {
+      return rankQuery.getCustomGroupField();
+    } else {
+      return Optional.empty();
     }
   }
 
@@ -1706,6 +1874,57 @@ public class QueryComponent extends SearchComponent {
     @Override
     public float score() throws IOException {
       return score;
+    }
+  }
+  /**
+   * minheapAdjusts element at position pos.
+   * @param docs minHeap with root at position zero.
+   * @param size size of the minHeap
+   * @param pos position which is to be adjusted.
+   */
+  private static void minHeapAdjust(List<ShardDoc> docs, int size, int pos) {
+    final ShardDoc doc = docs.get(pos);
+    final float score = doc.score;
+    int i = pos;
+    while (i <= ((size >> 1) - 1)) {
+      final int lchild = (i << 1) + 1;
+      final ShardDoc ldoc = docs.get(lchild);
+      final float lscore = ldoc.score;
+      float rscore = Float.MAX_VALUE;
+      final int rchild = (i << 1) + 2;
+      ShardDoc rdoc = null;
+      if (rchild < size) {
+        rdoc = docs.get(rchild);
+        rscore = rdoc.score;
+      }
+      if (lscore < score) {
+        if (rscore < lscore) {
+          docs.set(i, rdoc);
+          docs.set(rchild, doc);
+          i = rchild;
+        } else {
+          docs.set(i, ldoc);
+          docs.set(lchild, doc);
+          i = lchild;
+        }
+      } else if (rscore < score) {
+        docs.set(i, rdoc);
+        docs.set(rchild, doc);
+        i = rchild;
+      } else {
+        return;
+      }
+    }
+  }
+
+  /**
+   * creates minHeap with root at position 0.
+   * @param docs docs.
+   * @param size size of the heap.
+   */
+  private static void minHeapify(List<ShardDoc> docs, int size) {
+    for (int i = (size >> 1) - 1; i >= 0; i--) {
+      minHeapAdjust(docs, size, i);
     }
   }
 }

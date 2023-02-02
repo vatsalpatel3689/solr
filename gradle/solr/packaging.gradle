@@ -49,6 +49,7 @@ configure(allprojects.findAll {project -> project.path.startsWith(":solr:modules
 
     configurations {
       solrPlatformLibs
+      fkltrLibs
       runtimeLibs {
         extendsFrom runtimeElements
       }
@@ -79,7 +80,7 @@ configure(allprojects.findAll {project -> project.path.startsWith(":solr:modules
             return true
           }
         }
-        return externalLibs - configurations.solrPlatformLibs
+        return externalLibs
       }, {
         into "lib"
       })

@@ -1165,28 +1165,33 @@ public class SolrIndexSearcher extends IndexSearcher implements Closeable, SolrI
 
     int smallestCount = Integer.MAX_VALUE;
     for (Query q : queries) {
-      if (q instanceof ExtendedQuery) {
-        ExtendedQuery eq = (ExtendedQuery) q;
-        if (!eq.getCache()) {
-          if (eq.getCost() >= 100 && eq instanceof PostFilter) {
-            if (postFilters == null) postFilters = new ArrayList<>(sets.length - end);
-            postFilters.add((PostFilter) q);
-          } else {
-            if (notCached == null) notCached = new ArrayList<>(sets.length - end);
-            notCached.add((ExtendedQuery) q);
-          }
-          continue;
-        }
-      }
-
-      if (filterCache == null) {
-        // there is no cache: don't pull bitsets
-        if (notCached == null) notCached = new ArrayList<>(sets.length - end);
-        WrappedQuery uncached = new WrappedQuery(q);
-        uncached.setCache(false);
-        notCached.add(uncached);
-        continue;
-      }
+        // NOTE:fkltr not using postFiltering and filter-execution-parallel-to-query.
+        // This approach helps in short-circuiting query execution once filters are done.
+        // It is optimised for our use-case where query contains only filters AND
+        // also leaves flexibility to not cache a combination(specially OR) of some filters.
+        // eg. - {"fq": ["{!cache=false} +(filter(f1:v11) filter(f1:v12))"]}
+//      if (q instanceof ExtendedQuery) {
+//        ExtendedQuery eq = (ExtendedQuery) q;
+//        if (!eq.getCache()) {
+//          if (eq.getCost() >= 100 && eq instanceof PostFilter) {
+//            if (postFilters == null) postFilters = new ArrayList<>(sets.length - end);
+//            postFilters.add((PostFilter) q);
+//          } else {
+//            if (notCached == null) notCached = new ArrayList<>(sets.length - end);
+//            notCached.add((ExtendedQuery) q);
+//          }
+//          continue;
+//        }
+//      }
+//
+//      if (filterCache == null) {
+//        // there is no cache: don't pull bitsets
+//        if (notCached == null) notCached = new ArrayList<>(sets.length - end);
+//        WrappedQuery uncached = new WrappedQuery(q);
+//        uncached.setCache(false);
+//        notCached.add(uncached);
+//        continue;
+//      }
 
       Query posQuery = QueryUtils.getAbs(q);
       sets[end] = getPositiveDocSet(posQuery);
@@ -1546,7 +1551,10 @@ public class SolrIndexSearcher extends IndexSearcher implements Closeable, SolrI
           if ((flags & GET_SCORES) == 0 || superset.hasScores()) {
             // NOTE: subset() returns null if the DocList has fewer docs than
             // requested
-            out.docList = superset.subset(cmd.getOffset(), cmd.getLen());
+            superset = out.docList;
+            if (superset.size() > cmd.getLen()) {
+              out.docList = superset.subset(cmd.getOffset(), cmd.getLen());
+            }
           }
         }
         if (out.docList != null) {
@@ -1685,7 +1693,9 @@ public class SolrIndexSearcher extends IndexSearcher implements Closeable, SolrI
       // cursors anyway, but it still looks weird to have to special case this
       // behavior based on this condition - hence the long explanation.
       superset = out.docList;
-      out.docList = superset.subset(cmd.getOffset(), cmd.getLen());
+      if (superset.size() > cmd.getLen()) {
+        out.docList = superset.subset(cmd.getOffset(), cmd.getLen());
+      }
     } else {
       // sanity check our cursor assumptions
       assert null == superset : "cursor: superset isn't null";
@@ -1761,7 +1771,12 @@ public class SolrIndexSearcher extends IndexSearcher implements Closeable, SolrI
 
     if (null == cmd.getSort()) {
       assert null == cmd.getCursorMark() : "have cursor but no sort";
-      return TopScoreDocCollector.create(len, minNumFound);
+      if (q instanceof MatchAllDocsQuery && cmd.getSort() == null && cmd.getFilter() == null
+              && cmd.getFilterList() != null && !cmd.getFilterList().isEmpty()) {
+        return new NonReRankingDocSetTopDocsCollector();
+      } else {
+        return  TopScoreDocCollector.create(len, Integer.MAX_VALUE);
+      }
     } else {
       // we have a sort
       final Sort weightedSort = weightSort(cmd.getSort());
@@ -1847,17 +1862,26 @@ public class SolrIndexSearcher extends IndexSearcher implements Closeable, SolrI
     } else {
       final TopDocsCollector<?> topCollector = buildTopDocsCollector(len, cmd);
       MaxScoreCollector maxScoreCollector = null;
-      Collector collector = topCollector;
-      if ((cmd.getFlags() & GET_SCORES) != 0) {
-        maxScoreCollector = new MaxScoreCollector();
-        collector = MultiCollector.wrap(topCollector, maxScoreCollector);
+      // todo:fkltr identify all other instance of buildTopDocsCollector invocation when this fork may be necessary.
+      ScoreMode scoreModeUsed = null;
+      if (topCollector instanceof DocSetTopDocsCollector) {
+        ((DocSetTopDocsCollector) topCollector).setMatchedDocSet(pf.answer);
+      } else if (topCollector instanceof NonReRankingDocSetTopDocsCollector) {
+        ((NonReRankingDocSetTopDocsCollector) topCollector).setMatchedDocSet(pf.answer);
+      } else {
+        Collector collector = topCollector;
+        if ((cmd.getFlags() & GET_SCORES) != 0) {
+          maxScoreCollector = new MaxScoreCollector();
+          collector = MultiCollector.wrap(topCollector, maxScoreCollector);
+        }
+        scoreModeUsed = buildAndRunCollectorChain(qr, query, collector, cmd, pf.postFilter).scoreMode();
       }
-      ScoreMode scoreModeUsed =
-          buildAndRunCollectorChain(qr, query, collector, cmd, pf.postFilter).scoreMode();
+//      ScoreMode scoreModeUsed =
+//          buildAndRunCollectorChain(qr, query, collector, cmd, pf.postFilter).scoreMode();
 
       totalHits = topCollector.getTotalHits();
       TopDocs topDocs = topCollector.topDocs(0, len);
-      if (scoreModeUsed == ScoreMode.COMPLETE || scoreModeUsed == ScoreMode.COMPLETE_NO_SCORES) {
+      if (scoreModeUsed != null && (scoreModeUsed == ScoreMode.COMPLETE || scoreModeUsed == ScoreMode.COMPLETE_NO_SCORES)) {
         hitsRelation = TotalHits.Relation.EQUAL_TO;
       } else {
         hitsRelation = topDocs.totalHits.relation;

@@ -21,6 +21,7 @@ import java.util.Map;
 import java.util.Set;
 import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.search.IndexSearcher;
+import org.apache.lucene.search.MatchAllDocsQuery;
 import org.apache.lucene.search.Query;
 import org.apache.lucene.search.QueryVisitor;
 import org.apache.lucene.search.Rescorer;
@@ -67,8 +68,15 @@ public abstract class AbstractReRankQuery extends RankQuery {
       }
     }
 
-    return new ReRankCollector(
-        reRankDocs, len, reRankQueryRescorer, cmd, searcher, boostedPriority);
+    AbstractReRankQuery reRankQuery = (AbstractReRankQuery) cmd.getQuery();
+    if (reRankQuery.mainQuery instanceof MatchAllDocsQuery && reRankQuery.isFilterCollectorEnabled()
+            && cmd.getSort() == null && cmd.getFilter() == null && cmd.getFilterList() != null && !cmd.getFilterList().isEmpty()) {
+      // NOTE:fkltr it is safe to use DocSetTopDocsCollector in this case because postFiltering and filter-execution-parallel-to-query
+      // has been disabled.
+      return new DocSetTopDocsCollector(reRankDocs, reRankQueryRescorer, searcher, boostedPriority);
+    } else {
+      return new ReRankCollector(reRankDocs, len, reRankQueryRescorer, cmd, searcher, boostedPriority);
+    }
   }
 
   public Query rewrite(IndexReader reader) throws IOException {

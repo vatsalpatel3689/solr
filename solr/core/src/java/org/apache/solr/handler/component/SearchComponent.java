@@ -111,6 +111,10 @@ public abstract class SearchComponent implements SolrInfoBean, NamedListInitiali
     this.solrMetricsContext = parentContext.getChildContext(this);
   }
 
+//  public void setMetricRegistry(MetricRegistry metricRegistry) {
+//    this.registry = metricRegistry;
+//  }
+
   public static final Map<String, Class<? extends SearchComponent>> standard_components;
 
   static {

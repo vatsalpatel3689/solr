@@ -20,6 +20,7 @@ import static org.apache.solr.handler.admin.SecurityConfHandler.getMapValue;
 
 import java.security.Principal;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -29,6 +30,24 @@ import java.util.Set;
  */
 public class RuleBasedAuthorizationPlugin extends RuleBasedAuthorizationPluginBase {
   private final Map<String, Set<String>> usersVsRoles = new HashMap<>();
+
+  public boolean doesUserHavePermission(String user, PermissionNameProvider.Name permission) {
+    Set<String> roles = usersVsRoles.get(user);
+    if (roles != null) {
+      for (String role: roles) {
+        if (mapping.get(null) == null) continue;
+        List<Permission> permissions = mapping.get(null).get(null);
+        if (permissions != null) {
+          for (Permission p: permissions) {
+            if (permission.equals(p.wellknownName) && p.role.contains(role)) {
+              return true;
+            }
+          }
+        }
+      }
+    }
+    return false;
+  }
   private boolean useShortName;
 
   @Override

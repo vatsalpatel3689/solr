@@ -17,6 +17,9 @@
 package org.apache.solr.search;
 
 import java.io.IOException;
+import java.util.HashSet;
+import java.util.Optional;
+import java.util.Set;
 import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.Query;
 import org.apache.lucene.search.ScoreDoc;
@@ -35,4 +38,36 @@ public abstract class RankQuery extends ExtendedQueryBase {
   public abstract MergeStrategy getMergeStrategy();
 
   public abstract RankQuery wrap(Query mainQuery);
+  /**
+   * Used by merge layer to check if shardResponses are to be merged according to some customGrouping.
+   * @return customGroupField if custom grouping is required, empty denotes no customGrouping.
+   */
+  public Optional<String> getCustomGroupField() {
+    return Optional.empty();
+  }
+
+  /**
+   * Used by merge layer to find the groups which are queried.
+   * This is required because group-field can be multi-valued and query may be for a subset of those values.
+   * @return required groups, shardResponses will be grouped for these values of customGroupField.
+   */
+  public Set<String> getGroupsRequired() {
+    return new HashSet<>();
+  }
+
+  /**
+   * Used by merge layer to find the limit per group.
+   * @return limitPerGroup
+   */
+  public int getLimitPerGroup() {
+    return 0;
+  }
+
+  /**
+   * FilterCollector is a custom optimisation which can be utilised for filter-only queries.
+   * @return whether to use filterCollector.
+   */
+  public boolean isFilterCollectorEnabled() {
+    return false;
+  }
 }

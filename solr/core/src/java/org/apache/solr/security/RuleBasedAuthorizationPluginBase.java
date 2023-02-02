@@ -46,11 +46,11 @@ public abstract class RuleBasedAuthorizationPluginBase
     implements AuthorizationPlugin, ConfigEditablePlugin, SpecProvider {
   private static final Logger log = LoggerFactory.getLogger(MethodHandles.lookup().lookupClass());
 
-  private final Map<String, WildCardSupportMap> mapping = new HashMap<>();
+  final Map<String, WildCardSupportMap> mapping = new HashMap<>();
   private final Map<String, Set<Permission>> roleToPermissionsMap = new HashMap<>();
 
   // Doesn't implement Map because we violate the contracts of put() and get()
-  private static class WildCardSupportMap {
+  public static class WildCardSupportMap {
     final Set<String> wildcardPrefixes = new HashSet<>();
     final Map<String, List<Permission>> delegate = new HashMap<>();
 
